@@ -429,6 +429,21 @@ class ArchiverTestCase(ArchiverTestCaseBase):
                 self.cmd('extract', self.repository_location + '::test', os.path.join('input', filename))
             assert os.path.exists(os.path.join('output', 'input', filename))
 
+    def test_deep_directories(self):
+        # python default recursion limit is 1000, make a tree deeper than that
+        filename = self.input_path
+        for _ in range(1050):   # ironically, os.makedirs() uses recursion
+            filename = os.path.join(filename, 'a')
+            os.mkdir(filename)
+        filename = os.path.join(filename, 'deep.txt')
+        with open(filename, 'wb') as fd:
+            pass
+        self.cmd('init', self.repository_location)
+        self.cmd('create', self.repository_location + '::test', self.input_path)
+        with changedir(self.output_path):
+            self.cmd('extract', self.repository_location + '::test', filename)
+        assert os.path.exists(os.path.join(self.output_path, filename))
+
     def test_repository_swap_detection(self):
         self.create_test_files()
         os.environ['BORG_PASSPHRASE'] = 'passphrase'
