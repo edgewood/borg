@@ -184,24 +184,50 @@ class Archiver:
         return self.exit_code
 
     def _process(self, archive, cache, excludes, exclude_caches, exclude_if_present,
+                 keep_tag_files, skip_inodes, entry_path, restrict_dev,
+                 read_special=False, dry_run=False):
+        def should_process_subdir(subdir_path):
+            return self._process_path(archive, cache, excludes, exclude_caches, exclude_if_present,
+                                      keep_tag_files, skip_inodes, subdir_path, restrict_dev,
+                                      read_special=read_special, dry_run=dry_run)
+
+        def _handle_dir_error(oserror):
+            path = oserror.filename
+            self.print_warning('%s: %s', path, oserror)
+            self.print_status(status, path)
+
+        for dir_name, subdirs, files in os.walk(entry_path, onerror=_handle_dir_error):
+            # process files in this directory
+            for file_name in files:
+                file_path = os.path.normpath(os.path.join(dir_name, file_name))
+                self._process_path(archive, cache, excludes, exclude_caches, exclude_if_present,
+                                   keep_tag_files, skip_inodes, file_path, restrict_dev,
+                                   read_special=read_special, dry_run=dry_run)
+
+            # determine if subdirectories should be walked
+            subdirs[:] = [ d for d in subdirs if should_process_subdir(os.path.join(dir_name, d)) ]
+            subdirs.sort()
+
+
+    def _process_path(self, archive, cache, excludes, exclude_caches, exclude_if_present,
                  keep_tag_files, skip_inodes, path, restrict_dev,
                  read_special=False, dry_run=False):
         if exclude_path(path, excludes):
-            return
+            return False
         try:
             st = os.lstat(path)
         except OSError as e:
             self.print_warning('%s: %s', path, e)
-            return
+            return False
         if (st.st_ino, st.st_dev) in skip_inodes:
-            return
+            return False
         # Entering a new filesystem?
         if restrict_dev and st.st_dev != restrict_dev:
-            return
+            return False
         status = None
         # Ignore if nodump flag is set
         if has_lchflags and (st.st_flags & stat.UF_NODUMP):
-            return
+            return False
         if (stat.S_ISREG(st.st_mode) or
             read_special and not stat.S_ISDIR(st.st_mode)):
             if not dry_run:
@@ -216,20 +242,9 @@ class Archiver:
                 if keep_tag_files:
                     archive.process_dir(path, st)
                     archive.process_file(tag_path, st, cache)
-                return
+                return False
             if not dry_run:
                 status = archive.process_dir(path, st)
-            try:
-                entries = os.listdir(path)
-            except OSError as e:
-                status = 'E'
-                self.print_warning('%s: %s', path, e)
-            else:
-                for filename in sorted(entries):
-                    entry_path = os.path.normpath(os.path.join(path, filename))
-                    self._process(archive, cache, excludes, exclude_caches, exclude_if_present,
-                                  keep_tag_files, skip_inodes, entry_path, restrict_dev,
-                                  read_special=read_special, dry_run=dry_run)
         elif stat.S_ISLNK(st.st_mode):
             if not dry_run:
                 status = archive.process_symlink(path, st)
@@ -241,10 +256,10 @@ class Archiver:
                 status = archive.process_dev(path, st)
         elif stat.S_ISSOCK(st.st_mode):
             # Ignore unix sockets
-            return
+            return False
         else:
             self.print_warning('Unknown file type: %s', path)
-            return
+            return False
         # Status output
         # A lowercase character means a file type other than a regular file,
         # borg usually just stores them. E.g. (d)irectory.
@@ -261,6 +276,7 @@ class Archiver:
         # output ALL the stuff - it can be easily filtered using grep.
         # even stuff considered unchanged might be interesting.
         self.print_status(status, path)
+        return True
 
     def do_extract(self, args):
         """Extract archive contents"""
