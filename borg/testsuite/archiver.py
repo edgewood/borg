@@ -438,11 +438,23 @@ class ArchiverTestCase(ArchiverTestCaseBase):
         filename = os.path.join(filename, 'deep.txt')
         with open(filename, 'wb') as fd:
             pass
-        self.cmd('init', self.repository_location)
-        self.cmd('create', self.repository_location + '::test', self.input_path)
-        with changedir(self.output_path):
-            self.cmd('extract', self.repository_location + '::test', filename)
-        assert os.path.exists(os.path.join(self.output_path, filename))
+        try:
+            self.cmd('init', self.repository_location)
+            self.cmd('create', self.repository_location + '::test', self.input_path)
+            with changedir(self.output_path):
+                import pdb; pdb.set_trace()
+                self.cmd('extract', self.repository_location + '::test', filename)
+            assert os.path.exists(os.path.join(self.output_path, filename))
+        finally:
+            # rmtree also uses recursion, so have to cleanup input and output paths here
+            # TODO: cleanup output path when test works
+            os.unlink(filename)
+
+            dirname = os.path.dirname(filename)
+
+            while dirname != self.input_path:
+                os.rmdir(dirname)
+                dirname = os.path.dirname(dirname)
 
     def test_repository_swap_detection(self):
         self.create_test_files()
