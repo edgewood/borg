@@ -166,9 +166,9 @@ class Archiver:
                     continue
             else:
                 restrict_dev = None
-            self._process(archive, cache, args.excludes, args.exclude_caches, args.exclude_if_present,
-                          args.keep_tag_files, skip_inodes, path, restrict_dev,
-                          read_special=args.read_special, dry_run=dry_run)
+            self._scan_path(archive, cache, args.excludes, args.exclude_caches,
+                            args.exclude_if_present, args.keep_tag_files, skip_inodes, path,
+                            restrict_dev, read_special=args.read_special, dry_run=dry_run)
         if not dry_run:
             archive.save(timestamp=args.timestamp)
             if args.progress:
@@ -183,34 +183,27 @@ class Archiver:
                 print('-' * 78)
         return self.exit_code
 
-    def _process(self, archive, cache, excludes, exclude_caches, exclude_if_present,
-                 keep_tag_files, skip_inodes, entry_path, restrict_dev,
-                 read_special=False, dry_run=False):
-        def should_process_subdir(subdir_path):
-            return self._process_path(archive, cache, excludes, exclude_caches, exclude_if_present,
-                                      keep_tag_files, skip_inodes, subdir_path, restrict_dev,
-                                      read_special=read_special, dry_run=dry_run)
+    def _scan_path(self, archive, cache, excludes, exclude_caches, exclude_if_present,
+                   keep_tag_files, skip_inodes, entry_path, restrict_dev,
+                   read_special=False, dry_run=False):
+        def should_scan_subdir(subdir_path):
+            return self._process(archive, cache, excludes, exclude_caches, exclude_if_present,
+                                 keep_tag_files, skip_inodes, subdir_path, restrict_dev,
+                                 read_special=read_special, dry_run=dry_run)
 
         def _handle_dir_error(oserror):
             path = oserror.filename
             self.print_warning('%s: %s', path, oserror)
             self.print_status(status, path)
 
-        for dir_name, subdirs, files in os.walk(entry_path, onerror=_handle_dir_error):
-            # process files in this directory
-            for file_name in files:
-                file_path = os.path.normpath(os.path.join(dir_name, file_name))
-                self._process_path(archive, cache, excludes, exclude_caches, exclude_if_present,
-                                   keep_tag_files, skip_inodes, file_path, restrict_dev,
-                                   read_special=read_special, dry_run=dry_run)
+        for entry, meta in fs.scan_path(entry_path, descend=should_scan_subdir,
+                                        sort=sorted, onerror=_handle_dir_error):
+            self._process(archive, cache, excludes, exclude_caches, exclude_if_present,
+                          keep_tag_files, skip_inodes, entry, meta, restrict_dev,
+                          read_special=read_special, dry_run=dry_run)
 
-            # determine if subdirectories should be walked
-            subdirs[:] = [ d for d in subdirs if should_process_subdir(os.path.join(dir_name, d)) ]
-            subdirs.sort()
-
-
-    def _process_path(self, archive, cache, excludes, exclude_caches, exclude_if_present,
-                 keep_tag_files, skip_inodes, path, restrict_dev,
+    def _process(self, archive, cache, excludes, exclude_caches, exclude_if_present,
+                 keep_tag_files, skip_inodes, path, path_metadata, restrict_dev,
                  read_special=False, dry_run=False):
         if exclude_path(path, excludes):
             return False
